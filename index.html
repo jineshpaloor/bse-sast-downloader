@@ -82,11 +82,11 @@
       <summary>Proxy settings</summary>
       <div style="margin-top:10px">
         <label for="proxyUrl">Proxy URL</label>
-        <input type="url" id="proxyUrl" placeholder="https://sast-proxy.your-name.workers.dev">
+        <input type="url" id="proxyUrl" placeholder="https://aged-dust-5d80.jineshpaloor.workers.dev">
         <p class="hint">
-          BSE's API doesn't allow requests from other websites (CORS), so a browser on GitHub Pages
-          can't call it directly. Deploy the included <code>worker.js</code> to Cloudflare Workers (free)
-          and paste its URL here. Leave empty to try a direct call. Saved in this browser only.
+          Pre-filled with the default Cloudflare Worker proxy. BSE's API blocks direct browser calls
+          from other websites (CORS), so requests go through this proxy. Change it only if you deploy
+          a different worker; your override is saved in this browser.
         </p>
       </div>
     </details>
@@ -114,6 +114,7 @@
   'use strict';
 
   const SAST_API_BASE_URL = 'https://api.bseindia.com/BseIndiaAPI/api/Corporatesast/w';
+  const DEFAULT_PROXY_URL = 'https://aged-dust-5d80.jineshpaloor.workers.dev';
   const PROXY_KEY = 'sast.proxyUrl';
   const PREVIEW_LIMIT = 500;
 
@@ -274,8 +275,7 @@
   const today = new Date();
   $('fromDate').value = toInputDate(new Date(today.getFullYear(), 0, 1));
   $('toDate').value = toInputDate(today);
-  proxyInput.value = store.get(PROXY_KEY);
-  if (!proxyInput.value) $('proxyBox').open = true;
+  proxyInput.value = store.get(PROXY_KEY) || DEFAULT_PROXY_URL;
 
   proxyInput.addEventListener('change', () => store.set(PROXY_KEY, proxyInput.value.trim()));
   downloadBtn.addEventListener('click', downloadCsv);
