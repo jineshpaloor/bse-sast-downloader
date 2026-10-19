@@ -9,14 +9,16 @@
  * It ONLY forwards to the SAST endpoint (not an open proxy) and only the four
  * expected query parameters.
  *
+ * Every request must carry an `x-access-key` header matching the ACCESS_KEY secret.
+ *
  * Deploy: Cloudflare dashboard → Workers & Pages → Create → Worker → paste this → Deploy.
- * Then set ALLOWED_ORIGINS below to your GitHub Pages origin.
+ * Then add the ACCESS_KEY secret under Settings → Variables and Secrets.
  */
 
 const SAST_API_BASE_URL = 'https://api.bseindia.com/BseIndiaAPI/api/Corporatesast/w';
 
-// Lock this down to your site, e.g. ['https://jineshpaloor.github.io']. '*' allows any site.
-const ALLOWED_ORIGINS = ['*'];
+// Only your GitHub Pages site may call this worker from a browser.
+const ALLOWED_ORIGINS = ['https://jineshpaloor.github.io'];
 
 const UPSTREAM_HEADERS = {
   accept: 'application/json, text/plain, */*',
@@ -36,14 +38,30 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': allowAny ? '*' : allowed ? origin : 'null',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'accept, content-type',
+    'Access-Control-Allow-Headers': 'accept, content-type, x-access-key',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
 }
 
+// Constant-time string comparison so the key can't be guessed via response timing.
+async function safeEqual(a, b) {
+  const enc = new TextEncoder();
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b)),
+  ]);
+  const x = new Uint8Array(ha), y = new Uint8Array(hb);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+const json = (obj, status, cors) =>
+  new Response(JSON.stringify(obj), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
     const cors = corsHeaders(origin);
 
@@ -53,6 +71,14 @@ export default {
       return new Response('Origin not allowed', { status: 403, headers: cors });
     }
 
+    // Access key check. Set it in Cloudflare: Worker → Settings → Variables and Secrets →
+    // Add → type "Secret", name ACCESS_KEY. Fails closed if the secret isn't set.
+    if (!env.ACCESS_KEY) return json({ error: 'Server not configured: ACCESS_KEY secret missing' }, 500, cors);
+    const given = request.headers.get('x-access-key') || '';
+    if (!given || !(await safeEqual(given, env.ACCESS_KEY))) {
+      return json({ error: 'Invalid or missing access key' }, 401, cors);
+    }
+
     const inUrl = new URL(request.url);
     const out = new URL(SAST_API_BASE_URL);
     for (const p of ALLOWED_PARAMS) out.searchParams.set(p, inUrl.searchParams.get(p) ?? '');
@@ -60,10 +86,7 @@ export default {
 
     const dateOk = (d) => /^\d{8}$/.test(d);
     if (!dateOk(out.searchParams.get('fromdate')) || !dateOk(out.searchParams.get('todate'))) {
-      return new Response(JSON.stringify({ error: 'fromdate and todate must be YYYYMMDD' }), {
-        status: 400,
-        headers: { ...cors, 'Content-Type': 'application/json' },
-      });
+      return json({ error: 'fromdate and todate must be YYYYMMDD' }, 400, cors);
     }
 
     try {
@@ -83,10 +106,7 @@ export default {
         },
       });
     } catch (err) {
-      return new Response(JSON.stringify({ error: `Upstream request failed: ${err.message}` }), {
-        status: 502,
-        headers: { ...cors, 'Content-Type': 'application/json' },
-      });
+      return json({ error: `Upstream request failed: ${err.message}` }, 502, cors);
     }
   },
 };
