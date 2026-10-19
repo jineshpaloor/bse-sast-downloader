@@ -67,9 +67,11 @@ export default {
     }
 
     try {
+      // No caching: BSE sometimes returns [] transiently, and a cached [] would
+      // keep coming back for that exact date range.
       const upstream = await fetch(out.toString(), {
         headers: UPSTREAM_HEADERS,
-        cf: { cacheTtl: 300, cacheEverything: true }, // cache identical queries for 5 min
+        cache: 'no-store',
       });
       const body = await upstream.text();
       return new Response(body, {
@@ -77,6 +79,7 @@ export default {
         headers: {
           ...cors,
           'Content-Type': upstream.headers.get('Content-Type') || 'application/json',
+          'Cache-Control': 'no-store',
         },
       });
     } catch (err) {
